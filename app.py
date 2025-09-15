@@ -52,7 +52,13 @@ st.markdown(
         --bad: #EF4444;
         --app-bg: {APP_BG_GRADIENT};
     }}
-    .stApp {{ background: var(--app-bg); }}
+    .stApp {{ 
+        background: linear-gradient(rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.65)), 
+                        url("https://plus.unsplash.com/premium_photo-1681400019731-5d7cc4cafb9d?w=600&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NTR8fHRlY2h8ZW58MHx8MHx8fDA%3D");
+        background-size: cover;
+        background-attachment: fixed;
+    }}
+
     .block-container {{padding-top: 2rem; padding-bottom: 2rem;}}
     h1, h2, h3 {{ color: var(--heading) !important; font-weight: 900 !important; }}
     .metric-card {{ background: var(--panel); padding: 16px; border-radius: 14px; border: 1px solid rgba(148,163,184,0.25); box-shadow: 0 2px 12px rgba(0,0,0,0.25); }}
@@ -133,6 +139,13 @@ CHANNEL_COLORS = {
     "Google": "#34A853",
     "TikTok": "#0F0F0F",
 }
+
+# Consistent palette for tactics across charts
+TACTIC_PALETTE = (
+    px.colors.qualitative.Set2
+    + px.colors.qualitative.Set3
+    + px.colors.qualitative.Pastel
+)
 
 # Plotly defaults for consistent style
 px.defaults.template = "plotly_dark" if dark else "simple_white"
@@ -399,76 +412,18 @@ def build_filters(channels: pd.DataFrame, business: pd.DataFrame):
             st.info("Select a start and end date to update the dashboard.")
             st.stop()
 
-        channels_opts = ["All"] + sorted(channels["channel"].dropna().unique().tolist())
-        channels_sel = st.multiselect(
-            "Channels",
-            options=channels_opts,
-            default=["All"],
-            help="Pick specific channels or leave 'All' selected",
-            key="channels_sel",
-            on_change=lambda: _ensure_all_is_exclusive("channels_sel"),
-        )
-        st.session_state["channels_sel__prev"] = channels_sel
-        tactics_opts = ["All"] + sorted(channels["tactic"].dropna().unique().tolist())
-        tactics_sel = st.multiselect(
-            "Tactics",
-            options=tactics_opts,
-            default=["All"],
-            key="tactics_sel",
-            on_change=lambda: _ensure_all_is_exclusive("tactics_sel"),
-        )
-        st.session_state["tactics_sel__prev"] = tactics_sel
-        states_opts = ["All"] + sorted(channels["state"].dropna().unique().tolist())
-        states_sel = st.multiselect(
-            "States",
-            options=states_opts,
-            default=["All"],
-            key="states_sel",
-            on_change=lambda: _ensure_all_is_exclusive("states_sel"),
-        )
-        st.session_state["states_sel__prev"] = states_sel
-        campaigns_opts = ["All"] + sorted(channels["campaign"].dropna().unique().tolist())
-        campaigns_sel = st.multiselect(
-            "Campaigns",
-            options=campaigns_opts,
-            default=["All"],
-            key="campaigns_sel",
-            on_change=lambda: _ensure_all_is_exclusive("campaigns_sel"),
-        )
-        st.session_state["campaigns_sel__prev"] = campaigns_sel
-
-        with st.expander("Targets (for meters)", expanded=False):
-            roas_target = st.number_input("Blended ROAS target", min_value=0.1, max_value=10.0, value=2.0, step=0.1)
-            gm_target = st.slider("Gross Margin target (%)", min_value=0, max_value=100, value=60, step=1)
-            ctr_target = st.slider("CTR target (%)", min_value=0.0, max_value=10.0, value=2.0, step=0.1)
-            # Max ranges for gauges (adjustable)
-            roas_max = st.number_input("Gauge max (ROAS)", min_value=0.5, max_value=10.0, value=4.0, step=0.5)
-            gm_max = 100
-
-    return (start_date, end_date), channels_sel, tactics_sel, states_sel, campaigns_sel, roas_target, gm_target, ctr_target, roas_max, gm_max
+    return (start_date, end_date)
 
 
 def apply_filters(
     business: pd.DataFrame,
     channels: pd.DataFrame,
     date_range: Tuple[datetime, datetime],
-    channels_sel: List[str],
-    tactics_sel: List[str],
-    states_sel: List[str],
-    campaigns_sel: List[str],
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     start_date, end_date = date_range
     # Filter channels
     ch = channels.copy()
     ch = ch[(pd.to_datetime(ch["date"]) >= pd.to_datetime(start_date)) & (pd.to_datetime(ch["date"]) <= pd.to_datetime(end_date))]
-    if channels_sel and "All" not in channels_sel:
-        ch = ch[ch["channel"].isin(channels_sel)]
-    if tactics_sel and "All" not in tactics_sel:
-        ch = ch[ch["tactic"].isin(tactics_sel)]
-    if states_sel and "All" not in states_sel:
-        ch = ch[ch["state"].isin(states_sel)]
-    if campaigns_sel and "All" not in campaigns_sel:
-        ch = ch[ch["campaign"].isin(campaigns_sel)]
 
     # Filter business only by date (other dims do not apply)
     biz = business.copy()
@@ -531,6 +486,8 @@ def compute_kpis(biz: pd.DataFrame, ch: pd.DataFrame, date_range: Tuple[datetime
 
     spend = _period_sum(ch, "spend")
     attributed_revenue = _period_sum(ch, "attributed_revenue")
+    clicks_total = _period_sum(ch, "clicks")
+    impressions_total = _period_sum(ch, "impressions")
 
     blended_roas = safe_divide(attributed_revenue, spend)
     blended_cac = safe_divide(spend, new_customers)
@@ -563,6 +520,8 @@ def compute_kpis(biz: pd.DataFrame, ch: pd.DataFrame, date_range: Tuple[datetime
     nc_c, nc_p = _wow_pair(biz_curr, biz_prev, "new_customers")
     sp_c, sp_p = _wow_pair(ch_curr, ch_prev, "spend")
     ar_c, ar_p = _wow_pair(ch_curr, ch_prev, "attributed_revenue")
+    clk_c, clk_p = _wow_pair(ch_curr, ch_prev, "clicks")
+    imp_c, imp_p = _wow_pair(ch_curr, ch_prev, "impressions")
     roas_c = safe_divide(ar_c, sp_c)
     roas_p = safe_divide(ar_p, sp_p)
     cac_c = safe_divide(sp_c, nc_c)
@@ -571,6 +530,8 @@ def compute_kpis(biz: pd.DataFrame, ch: pd.DataFrame, date_range: Tuple[datetime
     aov_p = safe_divide(tr_p, ord_p)
     gm_c = safe_divide(gp_c, tr_c)
     gm_p = safe_divide(gp_p, tr_p)
+    ctr_c = safe_divide(clk_c, imp_c)
+    ctr_p = safe_divide(clk_p, imp_p)
 
     kpis = {
         "Total Revenue": {
@@ -578,6 +539,12 @@ def compute_kpis(biz: pd.DataFrame, ch: pd.DataFrame, date_range: Tuple[datetime
             "delta": wow_change(tr_c, tr_p),
             "format": fmt_money,
             "help": "Sum of total revenue (business.csv) over current filters.",
+        },
+        "Attributed Revenue": {
+            "value": attributed_revenue,
+            "delta": wow_change(ar_c, ar_p),
+            "format": fmt_money,
+            "help": "Revenue attributed to ads across all platforms.",
         },
         "Gross Profit": {
             "value": gross_profit,
@@ -603,12 +570,7 @@ def compute_kpis(biz: pd.DataFrame, ch: pd.DataFrame, date_range: Tuple[datetime
             "format": fmt_money,
             "help": "Sum of ad spend across channels.",
         },
-        "Blended ROAS": {
-            "value": blended_roas,
-            "delta": wow_change(roas_c, roas_p),
-            "format": lambda x: (f"{x:.2f}x" if not pd.isna(x) else "–"),
-            "help": "Attributed revenue / spend across all channels.",
-        },
+        # ROAS and Gross Margin are shown as gauges; omit their cards
         "Blended CAC": {
             "value": blended_cac,
             "delta": wow_change(cac_c, cac_p),
@@ -621,12 +583,15 @@ def compute_kpis(biz: pd.DataFrame, ch: pd.DataFrame, date_range: Tuple[datetime
             "format": fmt_money,
             "help": "Average order value: total revenue / orders.",
         },
-        "Gross Margin": {
-            "value": gross_margin,
-            "delta": wow_change(gm_c, gm_p),
-            "format": lambda x: fmt_pct(x, 1),
-            "help": "Gross profit / total revenue.",
+        "Clicks": {
+            "value": clicks_total,
+            "delta": wow_change(clk_c, clk_p),
+            "format": fmt_int,
+            "help": "Total ad clicks across platforms.",
         },
+        # Keep values available for gauges, but not displayed as KPI cards
+        "Blended ROAS": {"value": blended_roas, "delta": wow_change(roas_c, roas_p), "format": lambda x: (f"{x:.2f}x" if not pd.isna(x) else "–"), "help": "(Gauge) ROAS."},
+        "Gross Margin": {"value": gross_margin, "delta": wow_change(gm_c, gm_p), "format": lambda x: fmt_pct(x, 1), "help": "(Gauge) Gross margin."},
     }
 
     return kpis
@@ -636,29 +601,40 @@ def kpi_sparklines(daily: pd.DataFrame, start_date, end_date):
     # Create small time-series for key KPIs within selected range
     dd = daily[(pd.to_datetime(daily["date"]) >= pd.to_datetime(start_date)) & (pd.to_datetime(daily["date"]) <= pd.to_datetime(end_date))]
     figs = {}
-    # Revenue
-    fig_rev = px.area(dd, x="date", y="total_revenue")
-    fig_rev.update_traces(line_color=ACCENT_CYAN, fillcolor="rgba(90,227,255,0.15)")
-    fig_rev.update_layout(
-        margin=dict(l=40, r=10, t=10, b=40), showlegend=False,
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        xaxis_title="Date",
-        yaxis_title="Total Revenue",
-    )
-    fig_rev.update_yaxes(tickformat=",.0f", tickprefix="$", showgrid=True)
-    figs["Total Revenue"] = fig_rev
 
-    # Spend
-    fig_sp = px.area(dd, x="date", y="spend")
-    fig_sp.update_traces(line_color=ACCENT_PURPLE, fillcolor="rgba(124,140,255,0.18)")
-    fig_sp.update_layout(
-        margin=dict(l=40, r=10, t=10, b=40), showlegend=False,
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        xaxis_title="Date",
-        yaxis_title="Total Spend",
+    # Combined Revenue vs Spend (dual y-axes)
+    fig_rs = make_subplots(specs=[[{"secondary_y": True}]])
+    fig_rs.add_trace(
+        go.Scatter(
+            x=dd["date"],
+            y=dd["total_revenue"],
+            mode="lines",
+            name="Total Revenue",
+            line=dict(color=ACCENT_CYAN, width=2),
+        ),
+        secondary_y=False,
     )
-    fig_sp.update_yaxes(tickformat=",.0f", tickprefix="$", showgrid=True)
-    figs["Total Spend"] = fig_sp
+    fig_rs.add_trace(
+        go.Scatter(
+            x=dd["date"],
+            y=dd["spend"],
+            mode="lines",
+            name="Total Spend",
+            line=dict(color=ACCENT_PURPLE, width=2),
+        ),
+        secondary_y=True,
+    )
+    fig_rs.update_layout(
+        margin=dict(l=40, r=10, t=10, b=40),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis_title="Date",
+    )
+    fig_rs.update_yaxes(title_text="Total Revenue", tickformat=",.0f", tickprefix="$", showgrid=True, secondary_y=False)
+    fig_rs.update_yaxes(title_text="Total Spend", tickformat=",.0f", tickprefix="$", showgrid=True, secondary_y=True)
+    figs["Revenue vs Spend"] = fig_rs
 
     # ROAS
     fig_roas = px.area(dd, x="date", y="roas")
@@ -754,6 +730,605 @@ def chart_blended_roas(daily: pd.DataFrame, start_date, end_date) -> go.Figure:
     fig.update_yaxes(showgrid=True, gridcolor=GRID_COLOR)
     fig = apply_plot_style(fig)
     return fig
+
+
+def chart_platform_roas(ch: pd.DataFrame) -> go.Figure:
+    """Compare ROAS time series across platforms (channels).
+
+    Expects channel-level rows with columns: date, channel, spend, attributed_revenue.
+    """
+    if ch.empty:
+        return apply_plot_style(go.Figure())
+
+    df = (
+        ch.groupby(["date", "channel"], as_index=False)
+        .agg(spend=("spend", "sum"), revenue=("attributed_revenue", "sum"))
+    )
+    df["roas"] = df.apply(lambda r: safe_divide(r["revenue"], r["spend"]), axis=1)
+
+    # Keep only channels present; map colors where available
+    color_map = {k: v for k, v in CHANNEL_COLORS.items() if k in df["channel"].unique()}
+
+    fig = px.line(
+        df,
+        x="date",
+        y="roas",
+        color="channel",
+        color_discrete_map=color_map,
+        labels={"roas": "ROAS", "date": "Date", "channel": "Platform"},
+    )
+    fig.update_traces(mode="lines", line=dict(width=2))
+    fig.update_yaxes(tickformat=",.2f", ticksuffix="x")
+    fig.update_layout(
+        title_text="Daily ROAS by Platform",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        height=300,
+        margin=dict(l=10, r=10, t=10, b=0),
+    )
+    return apply_plot_style(fig)
+
+
+def chart_platform_roas_agg(ch: pd.DataFrame) -> go.Figure:
+    """Aggregate ROAS per platform across the filtered range."""
+    if ch.empty:
+        return apply_plot_style(go.Figure())
+    df = ch.groupby("channel", as_index=False).agg(
+        spend=("spend", "sum"), revenue=("attributed_revenue", "sum")
+    )
+    df["roas"] = df.apply(lambda r: safe_divide(r["revenue"], r["spend"]), axis=1)
+    df = df.sort_values("roas", ascending=False)
+    color_map = {k: v for k, v in CHANNEL_COLORS.items() if k in df["channel"].unique()}
+    fig = px.bar(
+        df,
+        x="channel",
+        y="roas",
+        color="channel",
+        color_discrete_map=color_map,
+        labels={"channel": "Platform", "roas": "ROAS"},
+    )
+    fig.update_traces(texttemplate="%{y:.2f}x", textposition="outside", cliponaxis=False)
+    fig.update_yaxes(tickformat=",.2f", ticksuffix="x")
+    # Apply base styling first, then set a larger top margin and explicit title placement
+    fig = apply_plot_style(fig)
+    fig.update_layout(
+        showlegend=False,
+        height=300,
+        margin=dict(l=10, r=10, t=48, b=0),
+        title=dict(
+            text="Aggregated ROAS",
+            x=0.0,
+            xanchor="left",
+            y=0.98,
+            yanchor="top",
+            font=dict(size=16, color=HEADING_COLOR),
+        ),
+    )
+    return fig
+
+
+def chart_platform_revenue_timeseries(ch: pd.DataFrame) -> go.Figure:
+    """Daily attributed revenue by platform (stacked area)."""
+    if ch.empty:
+        return apply_plot_style(go.Figure())
+    df = ch.groupby(["date", "channel"], as_index=False).agg(revenue=("attributed_revenue", "sum"))
+    color_map = {k: v for k, v in CHANNEL_COLORS.items() if k in df["channel"].unique()}
+    fig = px.area(
+        df,
+        x="date",
+        y="revenue",
+        color="channel",
+        color_discrete_map=color_map,
+        labels={"revenue": "Attributed Revenue", "channel": "Platform", "date": "Date"},
+        title="Attributed Revenue by Platform (Daily)",
+    )
+    fig.update_yaxes(tickformat=",.0f", tickprefix="$")
+    fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), height=300, margin=dict(l=10, r=10, t=10, b=0))
+    return apply_plot_style(fig)
+
+
+def chart_platform_revenue_agg(ch: pd.DataFrame) -> go.Figure:
+    """Aggregated attributed revenue by platform for the current filters."""
+    if ch.empty:
+        return apply_plot_style(go.Figure())
+    df = ch.groupby("channel", as_index=False).agg(revenue=("attributed_revenue", "sum"))
+    df = df.sort_values("revenue", ascending=False)
+    color_map = {k: v for k, v in CHANNEL_COLORS.items() if k in df["channel"].unique()}
+    fig = px.bar(
+        df,
+        x="channel",
+        y="revenue",
+        color="channel",
+        color_discrete_map=color_map,
+        labels={"channel": "Platform", "revenue": "Attributed Revenue"},
+    )
+    fig.update_traces(texttemplate="$%{y:,.0f}", textposition="outside", cliponaxis=False)
+    fig.update_yaxes(tickformat=",.0f", tickprefix="$")
+    fig = apply_plot_style(fig)
+    fig.update_layout(
+        showlegend=False,
+        height=300,
+        margin=dict(l=10, r=10, t=48, b=0),
+        title=dict(
+            text="Aggregated Attributed Revenue",
+            x=0.0,
+            xanchor="left",
+            y=0.98,
+            yanchor="top",
+            font=dict(size=16, color=HEADING_COLOR),
+        ),
+    )
+    return fig
+
+
+def chart_rev_spend_agg(daily: pd.DataFrame) -> go.Figure:
+    """Aggregated totals for revenue vs spend within the selected period."""
+    if daily.empty:
+        return apply_plot_style(go.Figure())
+    total_rev = pd.to_numeric(daily.get("total_revenue"), errors="coerce").fillna(0).sum()
+    total_sp = pd.to_numeric(daily.get("spend"), errors="coerce").fillna(0).sum()
+    df = pd.DataFrame({
+        "metric": ["Total Revenue", "Total Spend"],
+        "value": [total_rev, total_sp],
+    })
+    fig = px.bar(
+        df,
+        x="metric",
+        y="value",
+        color="metric",
+        color_discrete_map={"Total Revenue": ACCENT_CYAN, "Total Spend": ACCENT_PURPLE},
+        labels={"metric": "", "value": "Amount"},
+        title="Aggregated Revenue vs Spend",
+    )
+    fig.update_traces(texttemplate="$%{y:,.0f}", textposition="outside", cliponaxis=False)
+    fig.update_yaxes(tickformat=",.0f", tickprefix="$")
+    fig = apply_plot_style(fig)
+    fig.update_layout(showlegend=False, height=300, margin=dict(l=10, r=10, t=48, b=0), title=dict(text="Aggregated Revenue vs Spend", x=0.0, xanchor="left", y=0.98, yanchor="top", font=dict(size=16, color=HEADING_COLOR)))
+    return fig
+
+
+# ---------------------------
+# Tactics Analysis helpers
+# ---------------------------
+def chart_tactic_roas_timeseries(ch: pd.DataFrame) -> go.Figure:
+    """ROAS by tactic over time."""
+    if ch.empty or "tactic" not in ch.columns:
+        return apply_plot_style(go.Figure())
+    df = (
+        ch.groupby(["date", "tactic"], as_index=False)
+        .agg(spend=("spend", "sum"), revenue=("attributed_revenue", "sum"))
+    )
+    df["roas"] = df.apply(lambda r: safe_divide(r["revenue"], r["spend"]), axis=1)
+    # Build a stable color map for tactics present
+    tactics = df["tactic"].dropna().unique().tolist()
+    color_map = {t: TACTIC_PALETTE[i % len(TACTIC_PALETTE)] for i, t in enumerate(sorted(tactics))}
+    fig = px.line(
+        df,
+        x="date",
+        y="roas",
+        color="tactic",
+        color_discrete_map=color_map,
+        labels={"roas": "ROAS", "tactic": "Tactic", "date": "Date"},
+        title="ROAS by Tactic (Daily)",
+    )
+    fig.update_traces(line=dict(width=2))
+    fig.update_yaxes(tickformat=",.2f", ticksuffix="x")
+    fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), height=300, margin=dict(l=10, r=10, t=10, b=0))
+    return apply_plot_style(fig)
+
+
+def chart_tactic_roas_agg(ch: pd.DataFrame) -> go.Figure:
+    """Aggregated ROAS by tactic for current filters."""
+    if ch.empty or "tactic" not in ch.columns:
+        return apply_plot_style(go.Figure())
+    df = ch.groupby("tactic", as_index=False).agg(spend=("spend", "sum"), revenue=("attributed_revenue", "sum"))
+    df["roas"] = df.apply(lambda r: safe_divide(r["revenue"], r["spend"]), axis=1)
+    df = df.sort_values("roas", ascending=False)
+    tactics = df["tactic"].dropna().unique().tolist()
+    color_map = {t: TACTIC_PALETTE[i % len(TACTIC_PALETTE)] for i, t in enumerate(sorted(tactics))}
+    fig = px.bar(
+        df,
+        x="tactic",
+        y="roas",
+        color="tactic",
+        color_discrete_map=color_map,
+        labels={"tactic": "Tactic", "roas": "ROAS"},
+        title="Aggregated ROAS by Tactic",
+    )
+    fig.update_traces(texttemplate="%{y:.2f}x", textposition="outside", cliponaxis=False)
+    fig.update_yaxes(tickformat=",.2f", ticksuffix="x")
+    fig = apply_plot_style(fig)
+    fig.update_layout(showlegend=False, height=300, margin=dict(l=10, r=10, t=48, b=0), title=dict(text="Aggregated ROAS by Tactic", x=0.0, xanchor="left", y=0.98, yanchor="top", font=dict(size=16, color=HEADING_COLOR)))
+    return fig
+
+def chart_platform_tactic_sankey(ch: pd.DataFrame) -> go.Figure:
+    """Sankey mapping of Platforms (channels) to Tactics weighted by spend (or count)."""
+    if ch.empty or not {"channel", "tactic"}.issubset(ch.columns):
+        return apply_plot_style(go.Figure())
+
+    df = ch.copy()
+    has_spend = "spend" in df.columns
+    df = df[["channel", "tactic", "spend"]] if has_spend else df[["channel", "tactic"]]
+    df = df.dropna(subset=["channel", "tactic"]).copy()
+
+    if has_spend:
+        links = df.groupby(["channel", "tactic"], as_index=False).agg(value=("spend", "sum"))
+        metric_name = "Spend"
+    else:
+        links = df.groupby(["channel", "tactic"], as_index=False).size().rename(columns={"size": "value"})
+        metric_name = "Count"
+
+    channels = sorted(links["channel"].unique().tolist())
+    tactics = sorted(links["tactic"].unique().tolist())
+    labels = channels + tactics
+    idx = {name: i for i, name in enumerate(labels)}
+
+    sources = [idx[row.channel] for row in links.itertuples(index=False)]
+    targets = [idx[row.tactic] for row in links.itertuples(index=False)]
+    values = links["value"].astype(float).tolist()
+
+    ch_color = "#2E6BFF"
+    tact_color = "#10B981"
+    node_colors = [ch_color] * len(channels) + [tact_color] * len(tactics)
+
+    fig = go.Figure(
+        data=[
+            go.Sankey(
+                arrangement="snap",
+                node=dict(
+                    pad=12,
+                    thickness=16,
+                    line=dict(color="rgba(0,0,0,0)", width=0),
+                    label=labels,
+                    color=node_colors,
+                ),
+                link=dict(
+                    source=sources,
+                    target=targets,
+                    value=values,
+                    color="rgba(46,107,255,0.28)",
+                    label=[f"{row.channel} → {row.tactic}" for row in links.itertuples(index=False)],
+                    hovertemplate=(
+                        "%{source.label} → %{target.label}<br>" +
+                        f"Metric: {metric_name}<br>" +
+                        ("$%{value:,.0f}" if has_spend else "%{value}") +
+                        "<extra></extra>"
+                    ),
+                ),
+            )
+        ]
+    )
+    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10))
+    # Add a small caption explaining link width metric
+    fig.add_annotation(
+        text=("Link width = total spend" if has_spend else "Link width = count of rows"),
+        x=0.0,
+        y=1.08,
+        xref="paper",
+        yref="paper",
+        showarrow=False,
+        font=dict(size=12, color=HEADING_COLOR),
+        align="left",
+    )
+    return apply_plot_style(fig)
+
+def _platform_metric_timeseries(ch: pd.DataFrame, metric: str, title: str, yfmt: str = None, yprefix: str | None = None, ysuffix: str | None = None) -> go.Figure:
+    if ch.empty:
+        return apply_plot_style(go.Figure())
+
+    g = ch.groupby(["date", "channel"], as_index=False).agg(
+        impressions=("impressions", "sum"), clicks=("clicks", "sum"), spend=("spend", "sum")
+    )
+    if metric == "ctr":
+        g["value"] = g.apply(lambda r: safe_divide(r["clicks"], r["impressions"]), axis=1)
+        y_label = "CTR"
+    elif metric == "cpc":
+        g["value"] = g.apply(lambda r: safe_divide(r["spend"], r["clicks"]), axis=1)
+        y_label = "CPC"
+    elif metric == "cpm":
+        g["value"] = g.apply(lambda r: safe_divide(1000 * r["spend"], r["impressions"]), axis=1)
+        y_label = "CPM"
+    else:
+        raise ValueError("Unsupported metric for platform timeseries")
+
+    color_map = {k: v for k, v in CHANNEL_COLORS.items() if k in g["channel"].unique()}
+    fig = px.line(g, x="date", y="value", color="channel", color_discrete_map=color_map, labels={"value": y_label, "channel": "Platform"}, title=title)
+    fig.update_traces(mode="lines", line=dict(width=2))
+    if yfmt is not None:
+        fig.update_yaxes(tickformat=yfmt)
+    if yprefix is not None:
+        fig.update_yaxes(tickprefix=yprefix)
+    if ysuffix is not None:
+        fig.update_yaxes(ticksuffix=ysuffix)
+    fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), height=300, margin=dict(l=10, r=10, t=10, b=0))
+    return apply_plot_style(fig)
+
+
+def _platform_metric_agg(ch: pd.DataFrame, metric: str, title: str, yfmt: str = None, yprefix: str | None = None, ysuffix: str | None = None, higher_is_better: bool = True) -> go.Figure:
+    if ch.empty:
+        return apply_plot_style(go.Figure())
+
+    g = ch.groupby("channel", as_index=False).agg(impressions=("impressions", "sum"), clicks=("clicks", "sum"), spend=("spend", "sum"))
+    if metric == "ctr":
+        g["value"] = g.apply(lambda r: safe_divide(r["clicks"], r["impressions"]), axis=1)
+        y_label = "CTR"
+        sort_ascending = not higher_is_better
+    elif metric == "cpc":
+        g["value"] = g.apply(lambda r: safe_divide(r["spend"], r["clicks"]), axis=1)
+        y_label = "CPC"
+        sort_ascending = higher_is_better is False  # lower is better
+    elif metric == "cpm":
+        g["value"] = g.apply(lambda r: safe_divide(1000 * r["spend"], r["impressions"]), axis=1)
+        y_label = "CPM"
+        sort_ascending = True  # lower is better by default
+    else:
+        raise ValueError("Unsupported metric for platform aggregate")
+
+    # Order bars by value (descending if higher is better)
+    g = g.sort_values("value", ascending=sort_ascending)
+    color_map = {k: v for k, v in CHANNEL_COLORS.items() if k in g["channel"].unique()}
+    fig = px.bar(g, x="channel", y="value", color="channel", color_discrete_map=color_map, labels={"channel": "Platform", "value": y_label}, title=title)
+    if yfmt is not None:
+        fig.update_yaxes(tickformat=yfmt)
+    if yprefix is not None:
+        fig.update_yaxes(tickprefix=yprefix)
+    if ysuffix is not None:
+        fig.update_yaxes(ticksuffix=ysuffix)
+    # Metric-specific value labels
+    if metric == "ctr":
+        fig.update_traces(texttemplate="%{y:.1%}")
+    elif metric in ("cpc", "cpm"):
+        fig.update_traces(texttemplate="$%{y:,.2f}")
+    else:
+        fig.update_traces(texttemplate="%{y:,.2f}")
+    fig.update_traces(textposition="outside", cliponaxis=False)
+    fig = apply_plot_style(fig)
+    fig.update_layout(showlegend=False, height=300, margin=dict(l=10, r=10, t=48, b=0), title=dict(text=title, x=0.0, xanchor="left", y=0.98, yanchor="top", font=dict(size=16, color=HEADING_COLOR)))
+    return fig
+
+
+def chart_platform_kpi_radar(ch: pd.DataFrame) -> go.Figure:
+    """Spider chart where each KPI axis is normalized against the best platform.
+
+    Higher-is-better KPIs (Revenue, ROAS, CTR): score = value / max(value).
+    Lower-is-better KPIs (CPC, CPM): score = min(value) / value.
+    """
+    if ch.empty:
+        return apply_plot_style(go.Figure())
+
+    g = ch.groupby("channel", as_index=False).agg(
+        impressions=("impressions", "sum"),
+        clicks=("clicks", "sum"),
+        spend=("spend", "sum"),
+        attributed_revenue=("attributed_revenue", "sum"),
+    )
+    if g.empty:
+        return apply_plot_style(go.Figure())
+
+    # Compute KPIs per platform
+    g["revenue"] = pd.to_numeric(g["attributed_revenue"], errors="coerce").fillna(0.0)
+    g["roas"] = g.apply(lambda r: safe_divide(r["revenue"], r["spend"]), axis=1)
+    g["ctr"] = g.apply(lambda r: safe_divide(r["clicks"], r["impressions"]), axis=1)
+    g["cpc"] = g.apply(lambda r: safe_divide(r["spend"], r["clicks"]), axis=1)
+    g["cpm"] = g.apply(lambda r: safe_divide(1000.0 * r["spend"], r["impressions"]), axis=1)
+
+    metrics = [
+        ("Attributed Revenue", "revenue", "money", True),  # higher better
+        ("ROAS", "roas", "roas", True),
+        ("CTR", "ctr", "pct", True),
+        ("CPC", "cpc", "money", False),  # lower better
+        ("CPM", "cpm", "money", False),  # lower better
+    ]
+
+    # Compute best per KPI (max for higher, min for lower)
+    best: Dict[str, float] = {}
+    for _label, col, _fmt, higher in metrics:
+        series = pd.to_numeric(g[col], errors="coerce")
+        if not series.notna().any():
+            best[col] = 0.0
+        else:
+            best[col] = float(series.max() if higher else series.min())
+
+    # Hover formatting helper
+    def _fmt_value(val, kind: str) -> str:
+        if pd.isna(val):
+            return "–"
+        if kind == "money":
+            return f"$ {val:,.2f}"
+        if kind == "pct":
+            return f"{val*100:.2f}%"
+        if kind == "roas":
+            return f"{val:.2f}x"
+        return f"{val:,.2f}"
+
+    color_map = {k: v for k, v in CHANNEL_COLORS.items() if k in g["channel"].unique()}
+    fig = go.Figure()
+
+    thetas = [m[0] for m in metrics]
+
+    for row in g.itertuples(index=False):
+        channel = row.channel
+        r_vals: List[float] = []
+        hover_lines: List[str] = []
+        for label, col, kind, higher in metrics:
+            val = getattr(row, col)
+            b = best[col]
+            # compute score vs best
+            if pd.isna(val):
+                score = 0.0
+            else:
+                if higher:
+                    if b <= 0:
+                        score = 1.0 if val <= 0 else 0.0
+                    else:
+                        score = float(val) / b
+                else:
+                    if val <= 0:
+                        score = 1.0 if b <= 0 else min(1.0, b / 0.0000001)
+                    else:
+                        score = b / float(val)
+            # clamp to [0,1]
+            score = max(0.0, min(1.0, score))
+            r_vals.append(score)
+            hover_lines.append(f"{label}: {_fmt_value(val, kind)} • Best: {_fmt_value(b, kind)}")
+
+        fig.add_trace(
+            go.Scatterpolar(
+                r=r_vals,
+                theta=thetas,
+                name=channel,
+                fill="toself",
+                line=dict(width=2),
+                marker=dict(color=color_map.get(channel)),
+                customdata=hover_lines,
+                hovertemplate=(
+                    "Platform: %{fullData.name}<br>" +
+                    "%{theta}<br>" +
+                    "%{customdata}<br>" +
+                    "Score vs best: %{r:.2f}<extra></extra>"
+                ),
+            )
+        )
+
+    fig.update_layout(
+        title=dict(text="Platform KPI Radar (best-normalized)", x=0.0, xanchor="left", font=dict(size=16, color=HEADING_COLOR)),
+        polar=dict(
+            radialaxis=dict(range=[0, 1], showticklabels=True, tickvals=[0, 0.25, 0.5, 0.75, 1.0], tickformat=",.2f"),
+            angularaxis=dict(rotation=90, direction="clockwise", tickfont=dict(size=12, color=TEXT_COLOR)),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        height=420,
+        margin=dict(l=10, r=10, t=48, b=36),
+    )
+    
+    return apply_plot_style(fig)
+
+def chart_aov_timeseries(daily: pd.DataFrame) -> go.Figure:
+    dd = daily.copy()
+    if dd.empty:
+        return apply_plot_style(go.Figure())
+    # Ensure AOV exists
+    if "aov" not in dd.columns:
+        dd["aov"] = dd.apply(lambda r: safe_divide(r.get("total_revenue", np.nan), r.get("orders", np.nan)), axis=1)
+    fig = px.line(dd, x="date", y="aov", labels={"aov": "AOV", "date": "Date"}, title="AOV Over Time (Store-wide)")
+    fig.update_traces(line=dict(color=ACCENT_CYAN, width=2))
+    fig.update_yaxes(tickformat=",.0f", tickprefix="$")
+    fig.update_layout(legend=dict(orientation="h"), height=300, margin=dict(l=10, r=10, t=10, b=0))
+    return apply_plot_style(fig)
+
+
+def chart_aov_agg(daily: pd.DataFrame) -> go.Figure:
+    dd = daily.copy()
+    if dd.empty:
+        return apply_plot_style(go.Figure())
+    rev = dd["total_revenue"].sum()
+    orders = dd["orders"].sum()
+    aov_val = safe_divide(rev, orders)
+    fig = px.bar(x=["Overall"], y=[aov_val], labels={"x": "", "y": "AOV"}, title="Aggregated AOV")
+    fig.update_traces(marker_color=ACCENT_PURPLE, texttemplate="$%{y:,.0f}", textposition="outside", cliponaxis=False)
+    fig.update_yaxes(tickformat=",.0f", tickprefix="$")
+    fig = apply_plot_style(fig)
+    fig.update_layout(showlegend=False, height=300, margin=dict(l=10, r=10, t=48, b=0), title=dict(text="Aggregated AOV", x=0.0, xanchor="left", y=0.98, yanchor="top", font=dict(size=16, color=HEADING_COLOR)))
+    return fig
+
+
+# ---------------------------
+# Region Analysis (CA vs NY)
+# ---------------------------
+def _filter_ca_ny(ch: pd.DataFrame) -> pd.DataFrame:
+    if ch.empty or "state" not in ch.columns:
+        return ch.iloc[0:0]
+    return ch[ch["state"].astype(str).str.upper().isin(["CA", "NY"])]
+
+
+def chart_region_roas_timeseries(ch: pd.DataFrame) -> go.Figure:
+    df = _filter_ca_ny(ch)
+    if df.empty:
+        return apply_plot_style(go.Figure())
+    g = (
+        df.groupby(["date", "state"], as_index=False)
+        .agg(spend=("spend", "sum"), revenue=("attributed_revenue", "sum"))
+    )
+    g["roas"] = g.apply(lambda r: safe_divide(r["revenue"], r["spend"]), axis=1)
+    color_map = {"CA": ACCENT_CYAN, "NY": ACCENT_PURPLE}
+    fig = px.line(
+        g,
+        x="date",
+        y="roas",
+        color="state",
+        color_discrete_map=color_map,
+        labels={"state": "Region", "roas": "ROAS"},
+        title="ROAS Over Time (CA vs NY)",
+    )
+    fig.update_traces(line=dict(width=2))
+    fig.update_yaxes(tickformat=",.2f", ticksuffix="x")
+    fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), height=300, margin=dict(l=10, r=10, t=10, b=0))
+    return apply_plot_style(fig)
+
+
+def chart_region_metric_agg(ch: pd.DataFrame, metric: str, title: str, yfmt: str = None, yprefix: str | None = None, ysuffix: str | None = None, higher_is_better: bool = True) -> go.Figure:
+    df = _filter_ca_ny(ch)
+    if df.empty:
+        return apply_plot_style(go.Figure())
+    g = df.groupby("state", as_index=False).agg(impressions=("impressions", "sum"), clicks=("clicks", "sum"), spend=("spend", "sum"), revenue=("attributed_revenue", "sum"))
+    if metric == "roas":
+        g["value"] = g.apply(lambda r: safe_divide(r["revenue"], r["spend"]), axis=1)
+        y_label = "ROAS"
+        sort_ascending = False
+    elif metric == "ctr":
+        g["value"] = g.apply(lambda r: safe_divide(r["clicks"], r["impressions"]), axis=1)
+        y_label = "CTR"
+        sort_ascending = False
+    elif metric == "cpc":
+        g["value"] = g.apply(lambda r: safe_divide(r["spend"], r["clicks"]), axis=1)
+        y_label = "CPC"
+        sort_ascending = True
+    elif metric == "cpm":
+        g["value"] = g.apply(lambda r: safe_divide(1000 * r["spend"], r["impressions"]), axis=1)
+        y_label = "CPM"
+        sort_ascending = True
+    else:
+        raise ValueError("Unsupported region metric")
+
+    g = g.sort_values("value", ascending=sort_ascending)
+    fig = px.bar(g, x="state", y="value", color="state", color_discrete_map={"CA": ACCENT_CYAN, "NY": ACCENT_PURPLE}, labels={"state": "Region", "value": y_label}, title=title)
+    if yfmt is not None:
+        fig.update_yaxes(tickformat=yfmt)
+    if yprefix is not None:
+        fig.update_yaxes(tickprefix=yprefix)
+    if ysuffix is not None:
+        fig.update_yaxes(ticksuffix=ysuffix)
+    # Labels
+    if metric == "ctr":
+        fig.update_traces(texttemplate="%{y:.1%}")
+    elif metric in ("cpc", "cpm"):
+        fig.update_traces(texttemplate="$%{y:,.2f}")
+    else:
+        fig.update_traces(texttemplate="%{y:.2f}x")
+    fig.update_traces(textposition="outside", cliponaxis=False)
+    fig = apply_plot_style(fig)
+    fig.update_layout(showlegend=False, height=300, margin=dict(l=10, r=10, t=48, b=0), title=dict(text=title, x=0.0, xanchor="left", y=0.98, yanchor="top", font=dict(size=16, color=HEADING_COLOR)))
+    return fig
+
+
+def chart_region_spend_mix(ch: pd.DataFrame) -> go.Figure:
+    df = _filter_ca_ny(ch)
+    if df.empty:
+        return apply_plot_style(go.Figure())
+    g = df.groupby(["state", "channel"], as_index=False).agg(spend=("spend", "sum"))
+    color_map = {k: v for k, v in CHANNEL_COLORS.items() if k in g["channel"].unique()}
+    fig = px.bar(
+        g,
+        x="state",
+        y="spend",
+        color="channel",
+        color_discrete_map=color_map,
+        labels={"state": "Region", "spend": "Spend", "channel": "Platform"},
+        title="Spend Mix by Platform (CA vs NY)",
+    )
+    fig.update_layout(barmode="stack", barnorm="fraction", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), height=300, margin=dict(l=10, r=10, t=48, b=10), title=dict(text="Spend Mix by Platform (CA vs NY)", x=0.0, xanchor="left", y=0.98, yanchor="top", font=dict(size=16, color=HEADING_COLOR)))
+    fig.update_yaxes(tickformat=".0%")
+    return apply_plot_style(fig)
 
 
 def chart_correlation_heatmap(daily: pd.DataFrame) -> go.Figure:
@@ -1065,14 +1640,14 @@ def build_insights(ch: pd.DataFrame, biz: pd.DataFrame, date_range: Tuple[dateti
                 f"Biggest WoW spend mover: {up['channel']} ({up['delta']*100:.1f}% up). Biggest decline: {down['channel']} ({down['delta']*100:.1f}% down)."
             )
 
-    # Anomaly summary
-    daily, _, _ = build_daily_joins(biz, ch)
-    dd = daily[(pd.to_datetime(daily["date"]) >= pd.to_datetime(start_date)) & (pd.to_datetime(daily["date"]) <= pd.to_datetime(end_date))]
-    if not dd.empty:
-        z_spend = (z_scores(dd["spend"].fillna(0)).abs() >= 2).sum()
-        z_revenue = (z_scores(dd["total_revenue"].fillna(0)).abs() >= 2).sum()
-        if z_spend or z_revenue:
-            insights.append(f"Detected {int(z_spend)} spend and {int(z_revenue)} revenue anomaly days (|z| ≥ 2).")
+    # # Anomaly summary
+    # daily, _, _ = build_daily_joins(biz, ch)
+    # dd = daily[(pd.to_datetime(daily["date"]) >= pd.to_datetime(start_date)) & (pd.to_datetime(daily["date"]) <= pd.to_datetime(end_date))]
+    # if not dd.empty:
+    #     z_spend = (z_scores(dd["spend"].fillna(0)).abs() >= 2).sum()
+    #     z_revenue = (z_scores(dd["total_revenue"].fillna(0)).abs() >= 2).sum()
+    #     if z_spend or z_revenue:
+    #         insights.append(f"Detected {int(z_spend)} spend and {int(z_revenue)} revenue anomaly days (|z| ≥ 2).")
 
     return insights
 
@@ -1172,40 +1747,7 @@ def chart_semicircle_gauge(
             domain={"x": [0.03, 0.97], "y": [0, 1]},
         )
     )
-    # Overlay a thin target marker using a second gauge trace so changes reflect on the arc
-    if target is not None:
-        try:
-            tval = float(target)
-            # Clamp within axis
-            tval = min(max(tval, float(min_value)), float(max_value))
-            fig.add_trace(
-                go.Indicator(
-                    mode="gauge",
-                    value=tval,
-                    title={"text": ""},
-                    gauge={
-                        "axis": {
-                            "range": [min_value, max_value],
-                            "tickmode": "array",
-                            "tickvals": [],
-                            "tickfont": {"size": 1, "color": "rgba(0,0,0,0)"},
-                            "tickwidth": 0,
-                            "ticklen": 0,
-                        },
-                        "bar": {"color": "rgba(0,0,0,0)"},
-                        "bgcolor": "rgba(0,0,0,0)",
-                        "steps": [],
-                        "threshold": {
-                            "line": {"color": "#D1D5DB", "width": 3},
-                            "thickness": 0.9,
-                            "value": tval,
-                        },
-                    },
-                    domain={"x": [0.03, 0.97], "y": [0, 1]},
-                )
-            )
-        except Exception:
-            pass
+    # Target markers removed per request; target parameter is ignored for rendering
     # Add heading above the gauge so it doesn't overlap the center value
     fig.add_annotation(
         text=title,
@@ -1217,32 +1759,7 @@ def chart_semicircle_gauge(
         font=dict(size=16, color=HEADING_COLOR),
         align="center",
     )
-    # If a target is provided, display it as a small pill annotation
-    if target is not None:
-        try:
-            tgt_val = float(target)
-            if suffix == "%":
-                tgt_text = f"{tgt_val:,.0f}%"
-            elif suffix == "x":
-                tgt_text = f"{tgt_val:.2f}x".rstrip("0").rstrip(".")
-            else:
-                tgt_text = f"{tgt_val:,.0f}"
-            fig.add_annotation(
-                text=tgt_text,
-                showarrow=False,
-                x=0.5,
-                y=0.08,
-                xref="paper",
-                yref="paper",
-                font=dict(size=12, color=TEXT_COLOR),
-                align="center",
-                bgcolor="rgba(0,0,0,0.45)",
-                bordercolor="rgba(255,255,255,0.2)",
-                borderwidth=0,
-                borderpad=6,
-            )
-        except Exception:
-            pass
+    # Target pill removed per request
     fig.update_layout(
         margin=dict(l=42, r=42, t=30, b=6),
         height=230,
@@ -1267,19 +1784,8 @@ def main():
     daily_all, biz_daily_all, ch_daily_by_channel_all = build_daily_joins(business, channels)
 
     # Filters
-    (
-        date_range,
-        channels_sel,
-        tactics_sel,
-        states_sel,
-        campaigns_sel,
-        roas_target,
-        gm_target,
-        ctr_target,
-        roas_max,
-        gm_max,
-    ) = build_filters(channels, business)
-    biz_f, ch_f = apply_filters(business, channels, date_range, channels_sel, tactics_sel, states_sel, campaigns_sel)
+    date_range = build_filters(channels, business)
+    biz_f, ch_f = apply_filters(business, channels, date_range)
 
     # Update joins for filtered data
     daily, biz_daily, ch_daily_by_channel = build_daily_joins(biz_f, ch_f)
@@ -1294,14 +1800,14 @@ def main():
 
     kpi_order = [
         "Total Revenue",
+        "Attributed Revenue",
         "Gross Profit",
         "Orders",
         "New Customers",
         "Total Spend",
-        "Blended ROAS",
+        "Clicks",
         "Blended CAC",
         "AOV",
-        "Gross Margin",
     ]
     cols = st.columns(3)
     cols2 = st.columns(3)
@@ -1335,13 +1841,10 @@ def main():
                 )
             # Removed sparkline from KPI section — relocated to bottom tab
 
-    st.divider()
-
-    # Semicircle meters (hero gauges) with small gutters to prevent clipping
+    # Semicircle meters (hero gauges) right after KPIs
     g1, gutter1, g2, gutter2, g3 = st.columns([1, 0.05, 1, 0.05, 1])
     current_roas = kpis["Blended ROAS"]["value"]
     current_gm = kpis["Gross Margin"]["value"]
-    # Estimate CTR across filtered channels for meter 3
     ctr_val = np.nan
     if not ch_f.empty:
         total_clicks = ch_f["clicks"].sum()
@@ -1353,9 +1856,8 @@ def main():
             chart_semicircle_gauge(
                 value=current_roas if not pd.isna(current_roas) else 0.0,
                 min_value=0.0,
-                max_value=float(roas_max),
+                max_value=4.0,
                 title="Blended ROAS",
-                target=float(roas_target),
                 suffix="x",
                 color="#2E6BFF",
             ),
@@ -1368,9 +1870,8 @@ def main():
             chart_semicircle_gauge(
                 value=(float(current_gm) * 100.0) if not pd.isna(current_gm) else 0.0,
                 min_value=0.0,
-                max_value=float(gm_max),
+                max_value=100.0,
                 title="Gross Margin",
-                target=float(gm_target),
                 suffix="%",
                 color="#10B981",
             ),
@@ -1385,7 +1886,6 @@ def main():
                 min_value=0.0,
                 max_value=10.0,
                 title="CTR",
-                target=float(ctr_target),
                 suffix="%",
                 color="#F59E0B",
             ),
@@ -1393,82 +1893,127 @@ def main():
             config={"displayModeBar": False},
         )
 
-    # Tabs
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-        "KPI Details",
-        "Trends",
-        "Channels & Tactics",
-        "Campaigns",
-        "Geography",
-        "Correlation",
-        "Insights",
-    ])
+    st.divider()
 
-    with tab2:
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            st.subheader(f"Revenue vs Spend")
-            show_anom = st.checkbox("Show anomalies", value=True)
-            
-            fig = chart_trends(daily, start_date, end_date, show_anomalies=show_anom)
-            st.plotly_chart(fig, width='stretch')
+    # Heading for platform metric sections
+    st.subheader("Platform KPI Analysis")
+    # Spider chart comparing platforms to the best per KPI
+    if not ch_f.empty:
+        st.plotly_chart(chart_platform_kpi_radar(ch_f), width='stretch', config={"displayModeBar": False})
 
-            # Optional PNG download (requires kaleido)
-            try:
-                import plotly.io as pio
+    # Attributed revenue analysis (move to top of analysis sections)
+    with st.expander("Attributed Revenue Analysis", expanded=False):
+        st.caption("Compare attributed revenue across platforms over time and in total.")
+        if not ch_f.empty:
+            left, right = st.columns([2, 1])
+            with left:
+                st.plotly_chart(chart_platform_revenue_timeseries(ch_f), width='stretch', config={"displayModeBar": False})
+            with right:
+                st.plotly_chart(chart_platform_revenue_agg(ch_f), width='stretch', config={"displayModeBar": False})
+        else:
+            st.info("No channel data for revenue analysis.")
 
-                png_bytes = pio.to_image(fig, format="png", width=1200, height=400, scale=2)
-                st.download_button(
-                    label="Download Trend Chart (PNG)",
-                    data=png_bytes,
-                    file_name=f"revenue_vs_spend_{start_date}_{end_date}.png",
-                    mime="image/png",
-                )
-            except Exception:
-                st.caption("Install 'kaleido' to enable PNG downloads.")
+    # New: ROAS comparison across platforms (before gauges)
+    with st.expander("ROAS Analysis", expanded=False):
+        st.caption("Daily ROAS per platform with an aggregated comparison.")
+        if not ch_f.empty:
+            left, right = st.columns([2, 1])
+            with left:
+                st.plotly_chart(chart_platform_roas(ch_f), width='stretch', config={"displayModeBar": False})
+            with right:
+                st.plotly_chart(chart_platform_roas_agg(ch_f), width='stretch', config={"displayModeBar": False})
+        else:
+            st.info("No channel data for current filters.")
 
-        with c2:
-            st.subheader("Blended ROAS")
-            st.caption("Daily ROAS with 7-day moving average.")
-            st.plotly_chart(chart_blended_roas(daily, start_date, end_date), width='stretch', config={"displayModeBar": False})
+    # CTR analysis
+    with st.expander("CTR Analysis", expanded=False):
+        st.caption("Click-through rate indicates creative/message resonance. Higher is better.")
+        if not ch_f.empty:
+            left, right = st.columns([2, 1])
+            with left:
+                st.plotly_chart(_platform_metric_timeseries(ch_f, "ctr", "CTR by Platform", yfmt=".1%"), width='stretch', config={"displayModeBar": False})
+            with right:
+                st.plotly_chart(_platform_metric_agg(ch_f, "ctr", "Aggregated CTR", yfmt=".1%"), width='stretch', config={"displayModeBar": False})
+        else:
+            st.info("No channel data for CTR analysis.")
 
-        # Optional series
-        with st.expander("More series"):
-            c3, c4, c5 = st.columns(3)
+    # CPC analysis
+    with st.expander("CPC Analysis", expanded=False):
+        st.caption("Cost per click highlights traffic efficiency. Lower is better.")
+        if not ch_f.empty:
+            left, right = st.columns([2, 1])
+            with left:
+                st.plotly_chart(_platform_metric_timeseries(ch_f, "cpc", "CPC by Platform", yfmt=",.2f", yprefix="$"), width='stretch', config={"displayModeBar": False})
+            with right:
+                st.plotly_chart(_platform_metric_agg(ch_f, "cpc", "Aggregated CPC", yfmt=",.2f", yprefix="$", higher_is_better=False), width='stretch', config={"displayModeBar": False})
+        else:
+            st.info("No channel data for CPC analysis.")
+
+    # CPM analysis
+    with st.expander("CPM Analysis", expanded=False):
+        st.caption("Cost per thousand impressions reflects media buying efficiency. Lower is better.")
+        if not ch_f.empty:
+            left, right = st.columns([2, 1])
+            with left:
+                st.plotly_chart(_platform_metric_timeseries(ch_f, "cpm", "CPM by Platform", yfmt=",.2f", yprefix="$"), width='stretch', config={"displayModeBar": False})
+            with right:
+                st.plotly_chart(_platform_metric_agg(ch_f, "cpm", "Aggregated CPM", yfmt=",.2f", yprefix="$", higher_is_better=False), width='stretch', config={"displayModeBar": False})
+        else:
+            st.info("No channel data for CPM analysis.")
+
+    # Tactics Analysis
+    with st.expander("Tactics Analysis", expanded=False):
+        st.caption("Explore how platforms connect to tactics and their performance.")
+        # Replace static text with a Sankey visualization of Platform → Tactic
+        if not ch_f.empty and {"channel", "tactic"}.issubset(ch_f.columns):
+            st.plotly_chart(chart_platform_tactic_sankey(ch_f), width='stretch', config={"displayModeBar": False})
+        if not ch_f.empty:
+            left, right = st.columns([2, 1])
+            with left:
+                st.plotly_chart(chart_tactic_roas_timeseries(ch_f), width='stretch', config={"displayModeBar": False})
+            with right:
+                st.plotly_chart(chart_tactic_roas_agg(ch_f), width='stretch', config={"displayModeBar": False})
+        else:
+            st.info("No channel data for tactics analysis.")
+
+    # Other analysis heading
+    st.subheader("Other Analysis")
+
+    # Revenue vs Spend
+    with st.expander("Revenue vs Spend", expanded=False):
+        st.caption("Overall business revenue vs total ad spend over time.")
+        left, right = st.columns([2, 1])
+        with left:
+            fig = chart_trends(daily, start_date, end_date, show_anomalies=False)
+            st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
+        with right:
+            st.plotly_chart(chart_rev_spend_agg(daily), width='stretch', config={"displayModeBar": False})
+
+    # Region comparison: CA vs NY
+    with st.expander("Region Comparison: CA vs NY", expanded=False):
+        st.caption("Compare efficiency and mix across California and New York.")
+        ch_states = ch_f[ch_f["state"].astype(str).str.upper().isin(["CA", "NY"])] if not ch_f.empty else ch_f
+        if not ch_states.empty:
+            row1_left, row1_right = st.columns([2, 1])
+            with row1_left:
+                st.plotly_chart(chart_region_roas_timeseries(ch_states), width='stretch', config={"displayModeBar": False})
+            with row1_right:
+                st.plotly_chart(chart_region_metric_agg(ch_states, "roas", "Aggregated ROAS (CA vs NY)", yfmt=",.2f", ysuffix="x"), width='stretch', config={"displayModeBar": False})
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.plotly_chart(chart_region_metric_agg(ch_states, "ctr", "CTR (CA vs NY)", yfmt=".1%"), width='stretch', config={"displayModeBar": False})
+            with c2:
+                st.plotly_chart(chart_region_metric_agg(ch_states, "cpc", "CPC (CA vs NY)", yfmt=",.2f", yprefix="$", higher_is_better=False), width='stretch', config={"displayModeBar": False})
             with c3:
-                fig1 = px.line(daily, x="date", y="gross_profit")
-                fig1.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
-                st.plotly_chart(fig1, width='stretch', config={"displayModeBar": False})
-            with c4:
-                fig2 = px.line(daily, x="date", y="orders")
-                fig2.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
-                st.plotly_chart(fig2, width='stretch', config={"displayModeBar": False})
-            with c5:
-                fig3 = px.line(daily, x="date", y="new_customers")
-                fig3.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
-                st.plotly_chart(fig3, width='stretch', config={"displayModeBar": False})
+                st.plotly_chart(chart_region_metric_agg(ch_states, "cpm", "CPM (CA vs NY)", yfmt=",.2f", yprefix="$", higher_is_better=False), width='stretch', config={"displayModeBar": False})
 
-        # Correlation moved to its own tab below
+            st.plotly_chart(chart_region_spend_mix(ch_states), width='stretch', config={"displayModeBar": False})
+        else:
+            st.info("No CA/NY data available for current filters.")
 
-    with tab3:
-        c1, c2 = st.columns(2)
-        with c1:
-            metric_choice = st.radio("Channel contribution metric", ["spend", "attributed_revenue"], horizontal=True)
-            st.plotly_chart(chart_channel_contribution(ch_f, metric=metric_choice), width='stretch', config={"displayModeBar": False})
-        with c2:
-            group_by = st.radio("Tactics breakdown", ["channel", "over_time"], index=0, horizontal=True)
-            st.plotly_chart(chart_tactic_stack(ch_f, group_by=group_by), width='stretch', config={"displayModeBar": False})
-
-        st.subheader("Per-channel trends")
-        metric_sm = st.selectbox("Metric", ["spend", "attributed_revenue", "roas"])
-        # For roas in small multiples we need daily by channel with derived roas
-        ch_sm = ch_daily_by_channel.copy()
-        if metric_sm == "roas":
-            ch_sm["roas"] = ch_sm.apply(lambda r: safe_divide(r["attributed_revenue"], r["spend"]), axis=1)
-        st.plotly_chart(chart_small_multiples(ch_sm, metric=metric_sm), width='stretch')
-
-    with tab4:
-        st.subheader("Campaign performance")
+    # Campaign performance
+    with st.expander("Campaign Performance", expanded=False):
         camp = build_campaign_leaderboard(ch_f)
         if not camp.empty:
             st.plotly_chart(chart_campaign_scatter(camp), width='stretch')
@@ -1483,69 +2028,22 @@ def main():
         else:
             st.info("No campaign data for current filters.")
 
-    with tab5:
-        st.subheader("Geography by State")
-        geo, geo_map = build_geo_tables(ch_f)
-        if not geo_map.empty:
-            st.plotly_chart(chart_geo_choropleth(geo_map), width='stretch')
-        else:
-            st.caption("Choropleth not available (missing/unknown state codes). Showing ranked bars.")
-            topn = geo.sort_values("spend", ascending=False).head(20)
-            fig_bar = px.bar(topn, x="state", y="spend")
-            fig_bar.update_layout(height=400, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig_bar, width='stretch')
-
-        st.caption("Regional table")
-        geo_tbl = geo.copy()
-        geo_tbl = geo_tbl.sort_values("spend", ascending=False)
-        st.dataframe(
-            geo_tbl.assign(
-                roas=lambda d: d["roas"].map(lambda x: f"{x:.2f}x" if not pd.isna(x) else "–"),
-                share=lambda d: d["share"].map(lambda x: f"{x*100:.1f}%" if not pd.isna(x) else "–"),
-            ),
-            width='stretch',
-        )
-
-    with tab7:
-        st.subheader("Automated Insights")
-        bullets = build_insights(ch_f, biz_f, date_range)
-        if bullets:
-            for b in bullets:
-                st.markdown(f"- {b}")
-        else:
-            st.info("No standout insights for current filters.")
-
-    with tab1:
-        st.subheader("KPI Sparklines")
-        st.caption("Compact time series for key KPIs from the selected period.")
-        c1, c2, c3 = st.columns(3)
-        if "Total Revenue" in spark:
-            with c1:
-                st.markdown("<div class='kpi-headline'>Total Revenue</div>", unsafe_allow_html=True)
-                fig_rev = go.Figure(spark["Total Revenue"])
-                fig_rev.update_layout(height=200, margin=dict(l=40, r=10, t=10, b=40), title_text="")
-                st.plotly_chart(apply_plot_style(fig_rev, height=200), width='stretch', config={"displayModeBar": False})
-        if "Total Spend" in spark:
-            with c2:
-                st.markdown("<div class='kpi-headline'>Total Spend</div>", unsafe_allow_html=True)
-                fig_sp = go.Figure(spark["Total Spend"])
-                fig_sp.update_layout(height=200, margin=dict(l=40, r=10, t=10, b=40), title_text="")
-                st.plotly_chart(apply_plot_style(fig_sp, height=200), width='stretch', config={"displayModeBar": False})
-        if "Blended ROAS" in spark:
-            with c3:
-                st.markdown("<div class='kpi-headline'>Blended ROAS</div>", unsafe_allow_html=True)
-                fig_roas = go.Figure(spark["Blended ROAS"])
-                fig_roas.update_layout(height=200, margin=dict(l=40, r=10, t=10, b=40), title_text="")
-                st.plotly_chart(apply_plot_style(fig_roas, height=200), width='stretch', config={"displayModeBar": False})
-
-    with tab6:
-        st.subheader("Correlation Matrix (Marketing vs Business)")
+    # Correlation analysis
+    with st.expander("Correlation Matrix", expanded=False):
         st.caption("Pearson correlations on daily aggregates within the selected date range.")
         dd = daily[(pd.to_datetime(daily["date"]) >= pd.to_datetime(start_date)) & (pd.to_datetime(daily["date"]) <= pd.to_datetime(end_date))]
         if not dd.empty:
             st.plotly_chart(chart_correlation_heatmap(dd), width='stretch', config={"displayModeBar": False})
         else:
             st.info("No data available for the selected range to compute correlations.")
+
+    st.subheader("Insights")
+    bullets = build_insights(ch_f, biz_f, date_range)
+    if bullets:
+        for b in bullets:
+            st.markdown(f"- {b}")
+    else:
+        st.info("No standout insights for current filters.")
 
 
 if __name__ == "__main__":
