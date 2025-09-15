@@ -52,11 +52,7 @@ st.markdown(
         --bad: #EF4444;
         --app-bg: {APP_BG_GRADIENT};
     }}
-    .stApp {{ 
-        background: linear-gradient(rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.65)), 
-                        url("https://plus.unsplash.com/premium_photo-1681400019731-5d7cc4cafb9d?w=600&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NTR8fHRlY2h8ZW58MHx8MHx8fDA%3D");
-        background-size: cover;
-        background-attachment: fixed;
+    .stApp {{ background: var(--app-bg); }}
     }}
 
     .block-container {{padding-top: 2rem; padding-bottom: 2rem;}}
