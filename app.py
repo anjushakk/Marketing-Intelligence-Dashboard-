@@ -19,6 +19,7 @@ st.set_page_config(
     page_title="Marketing Intelligence Dashboard",
     layout="wide",
     page_icon="📈",
+    initial_sidebar_state="collapsed",
 )
 
 # Subtle, modern styling inspired by premium BI dashboards
@@ -53,8 +54,6 @@ st.markdown(
         --app-bg: {APP_BG_GRADIENT};
     }}
     .stApp {{ background: var(--app-bg); }}
-    }}
-
     .block-container {{padding-top: 2rem; padding-bottom: 2rem;}}
     h1, h2, h3 {{ color: var(--heading) !important; font-weight: 900 !important; }}
     .metric-card {{ background: var(--panel); padding: 16px; border-radius: 14px; border: 1px solid rgba(148,163,184,0.25); box-shadow: 0 2px 12px rgba(0,0,0,0.25); }}
@@ -71,6 +70,15 @@ st.markdown(
     .kpi-headline {{ font-size: 1.15rem; font-weight: 800; color: var(--heading); display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }}
     .info-icon {{ display:inline-flex; width:18px; height:18px; border-radius: 50%; align-items:center; justify-content:center; background: rgba(255,255,255,0.08); color: var(--muted); font-size: 12px; cursor: help; }}
     .info-icon:hover {{ color: var(--heading); }}
+    /* Date input styling */
+    div[data-testid="stDateInput"] {{ width: 260px !important; }}
+    div[data-testid="stDateInput"] label {{ color: var(--muted) !important; }}
+    div[data-testid="stDateInput"] input {{
+        background-color: var(--panel) !important;
+        color: var(--heading) !important;
+        border: 1px solid rgba(148,163,184,0.25) !important;
+        border-radius: 10px !important;
+    }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -391,22 +399,27 @@ def build_filters(channels: pd.DataFrame, business: pd.DataFrame):
     min_date = min(pd.to_datetime(channels["date"]).min(), pd.to_datetime(business["date"]).min()).date()
     max_date = max(pd.to_datetime(channels["date"]).max(), pd.to_datetime(business["date"]).max()).date()
 
-    with st.sidebar:
-        st.header("Filters")
-        date_range = st.date_input(
-            "Date range",
-            value=(min_date, max_date),
-            min_value=min_date,
-            max_value=max_date,
-        )
-        # Guard against partial selection (streamlit may provide a single date while picking)
-        if isinstance(date_range, (list, tuple)) and len(date_range) == 2 and all(date_range):
-            start_date, end_date = date_range
-            if start_date > end_date:
-                start_date, end_date = end_date, start_date
-        else:
-            st.info("Select a start and end date to update the dashboard.")
-            st.stop()
+    # Top-of-page filter bar (no sidebar)
+    with st.container():
+        left, right = st.columns([1, 4])
+        with left:
+            st.markdown("<div style='font-weight:600; font-size:14px;'>Date range</div>", unsafe_allow_html=True)
+        with right:
+            date_range = st.date_input(
+                "",
+                value=(min_date, max_date),
+                min_value=min_date,
+                max_value=max_date,
+                label_visibility="collapsed",
+            )
+    # Guard against partial selection (streamlit may provide a single date while picking)
+    if isinstance(date_range, (list, tuple)) and len(date_range) == 2 and all(date_range):
+        start_date, end_date = date_range
+        if start_date > end_date:
+            start_date, end_date = end_date, start_date
+    else:
+        st.info("Select a start and end date to update the dashboard.")
+        st.stop()
 
     return (start_date, end_date)
 
